@@ -56,7 +56,7 @@ main (int argc, char *argv[]) {
     GMainLoop *loop = NULL;
     GstElement *pipeline = NULL, *source = NULL, *h264parser = NULL,
                *decoder = NULL, *streammux = NULL, *sink = NULL,
-               *pgie = NULL, *nvvidconv = NULL, *nvdsosd = NULL;
+               *pgie = NULL, *nvvidconv = NULL, *nvdsosd = NULL, *h264parser1 = NULL, *nvvidconv1 = NULL, *enc = NULL;
 #ifdef PLATFORM_TEGRA
     GstElement *transform = NULL;
 #endif
@@ -84,6 +84,7 @@ main (int argc, char *argv[]) {
     /* Since the data format in the input file is elementary h264 stream,
      * we need a h264parser */
     h264parser = gst_element_factory_make ("h264parse", "h264-parser");
+    h264parser1 = gst_element_factory_make ("h264parse", "h264-parser1");
 
     /* Use nvdec_h264 for hardware accelerated decode on GPU */
     decoder = gst_element_factory_make ("nvv4l2decoder", "nvv4l2-decoder");
@@ -103,15 +104,17 @@ main (int argc, char *argv[]) {
 
     /* Use convertor to convert from NV12 to RGBA as required by nvdsosd */
     nvvidconv = gst_element_factory_make ("nvvideoconvert", "nvvideo-converter");
+    nvvidconv1 = gst_element_factory_make ("nvvideoconvert", "nvvideo-converter1");
 
     /* Create OSD to draw on the converted RGBA buffer */
     nvdsosd = gst_element_factory_make ("nvdsosd", "nv-onscreendisplay");
+    enc = gst_element_factory_make ("nvv4l2h264enc", "h264-enc");
 
     /* Finally render the osd output */
 #ifdef PLATFORM_TEGRA
     transform = gst_element_factory_make ("nvegltransform", "nvegl-transform");
 #endif
-    sink = gst_element_factory_make ("nveglglessink", "nvvideo-renderer");
+    sink = gst_element_factory_make ("filesink", "nvvideo-renderer");
 
     if (!source || !h264parser || !decoder || !pgie
             || !nvvidconv || !nvdsosd || !sink) {
@@ -128,6 +131,7 @@ main (int argc, char *argv[]) {
 
     /* we set the input filename to the source element */
     g_object_set (G_OBJECT (source), "location", argv[2], NULL);
+    g_object_set (G_OBJECT (sink), "location", "./out.h264", NULL);
 
     g_object_set (G_OBJECT (streammux), "width", MUXER_OUTPUT_WIDTH, "height",
                   MUXER_OUTPUT_HEIGHT, "batch-size", 1,
@@ -152,7 +156,7 @@ main (int argc, char *argv[]) {
 #else
     gst_bin_add_many (GST_BIN (pipeline),
                       source, h264parser, decoder, streammux, pgie,
-                      nvvidconv, nvdsosd, sink, NULL);
+                      nvvidconv, nvdsosd, nvvidconv1, enc, h264parser1, sink, NULL);
 #endif
 
     GstPad *sinkpad, *srcpad;
@@ -196,7 +200,7 @@ main (int argc, char *argv[]) {
     }
 #else
     if (!gst_element_link_many (streammux, pgie,
-                                nvvidconv, nvdsosd, sink, NULL)) {
+                                nvvidconv, nvdsosd, nvvidconv1, enc, h264parser1, sink, NULL)) {
         g_printerr ("Elements could not be linked: 2. Exiting.\n");
         return -1;
     }

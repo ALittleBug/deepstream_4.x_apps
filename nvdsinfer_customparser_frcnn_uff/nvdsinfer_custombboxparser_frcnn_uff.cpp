@@ -281,7 +281,7 @@ bool NvDsInferParseCustomFrcnnUff (std::vector<NvDsInferLayerInfo> const &output
     /* Find the bbox layer */
     if (bboxLayerIndex == -1) {
         for (unsigned int i = 0; i < outputLayersInfo.size(); i++) {
-            if (strcmp(outputLayersInfo[i].layerName, "dense_regress/BiasAdd") == 0) {
+            if (strcmp(outputLayersInfo[i].layerName, "dense_regress_td/BiasAdd") == 0) {
                 bboxLayerIndex = i;
                 break;
             }
@@ -295,7 +295,7 @@ bool NvDsInferParseCustomFrcnnUff (std::vector<NvDsInferLayerInfo> const &output
     /* Find the cov layer */
     if (covLayerIndex == -1) {
         for (unsigned int i = 0; i < outputLayersInfo.size(); i++) {
-            if (strcmp(outputLayersInfo[i].layerName, "dense_class/Softmax") == 0) {
+            if (strcmp(outputLayersInfo[i].layerName, "dense_class_td/Softmax") == 0) {
                 covLayerIndex = i;
                 getDimsCHWFromDims(covLayerDims, outputLayersInfo[i].dims);
                 break;

@@ -1,5 +1,3 @@
-Automobile
-Bicycle
-Person
-Roadsign
-background
+car
+cyclist
+person
