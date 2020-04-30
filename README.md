@@ -2,7 +2,7 @@
   * [Description](#description)
   * [Prerequisites](#prerequisites)
   * [Download](#download)
-    + [1. Install [git-lfs](https://github.com/git-lfs/git-lfs/wiki/Installation) (git >= 1.8.2)](#1-install--git-lfs--https---githubcom-git-lfs-git-lfs-wiki-installation---git----182-)
+    + [1. Install git-lfs](#1-install--git-lfs--https---githubcom-git-lfs-git-lfs-wiki-installation---git----182-)
     + [2. Download Source Code with SSH or HTTPS](#2-download-source-code-with-ssh-or-https)
   * [Build](#build)
     + [1. Build TRT OSS Plugin](#1-build-trt-oss-plugin)
