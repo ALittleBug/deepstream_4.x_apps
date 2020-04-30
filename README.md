@@ -1,3 +1,4 @@
+# Integrate TLT model with DeepStream SDK
 
    * [Integrate TLT model with DeepStream SDK](#integrate-tlt-model-with-deepstream-sdk)
       * [Description](#description)
@@ -22,9 +23,6 @@
       * [FAQ](#faq)
          * [Measure The Inference Perf](#measure-the-inference-perf)
       * [Known issues](#known-issues)
-
-  
-# Integrate TLT model with DeepStream SDK
 
 ## Description
 
