@@ -1,232 +1,185 @@
+- [Integrate TLT model with DeepStream SDK](#integrate-tlt-model-with-deepstream-sdk)
+  * [Description](#description)
+  * [Prerequisites](#prerequisites)
+  * [Download](#download)
+    + [1. Install [git-lfs](https://github.com/git-lfs/git-lfs/wiki/Installation) (git >= 1.8.2)](#1-install--git-lfs--https---githubcom-git-lfs-git-lfs-wiki-installation---git----182-)
+    + [2. Download Source Code with SSH or HTTPS](#2-download-source-code-with-ssh-or-https)
+  * [Build](#build)
+    + [1. Build TRT OSS Plugin](#1-build-trt-oss-plugin)
+    + [2. Build Sample Application](#2-build-sample-application)
+  * [Run](#run)
+  * [Information for Customization](#information-for-customization)
+    + [TLT Models](#tlt-models)
+    + [Label Files](#label-files)
+    + [DeepStream configuration file](#deepstream-configuration-file)
+    + [Model Outputs](#model-outputs)
+      - [1. Yolov3](#1-yolov3)
+      - [2. Detectnet_v2](#2-detectnet-v2)
+      - [3~5. RetinaNet / DSSD / SSD](#3-5-retinanet---dssd---ssd)
+      - [6. FasterRCNN](#6-fasterrcnn)
+    + [TRT Plugins Requirements](#trt-plugins-requirements)
+  * [FAQ](#faq)
+    + [Measure The Inference Perf](#measure-the-inference-perf)
+  * [Known issues](#known-issues)
 
-# FasterRCNN, SSD, and MaskRCNN samples with Deepstream SDK
+<small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
-This repository provides 3 DeepStream sample apps based on [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk).
+# Integrate TLT model with DeepStream SDK
+[[_TOC_]]
 
-* **FasterRCNN sample** This sample shows how to use FasterRCNN model trained with [NVIDIA Transfer Learning Toolkit(TLT) SDK](https://developer.nvidia.com/transfer-learning-toolkit) to do inference with DeepStream SDK.
-* **SSD sample** This sample shows how to use the SSD model trained with [NVIDIA Transfer Learning Toolkit(TLT) SDK](https://developer.nvidia.com/transfer-learning-toolkit) to do inference with DeepStream SDK.
-* **MaskRCNN sample** This sample shows how to use the model trained with the [popular open sourced MaskRCNN implementation in GitHub](https://github.com/matterport/Mask_RCNN) to do inference with DeepStream SDK.
+## Description
 
-These DeepStream samples support both NVIDIA Tesla and Tegra platform.
+This repository provides a DeepStream sample application based on [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk) to run six TLT models (**DetectNet_v2** / **Faster-RCNN** / **YoloV3** / **SSD** / **DSSD** / **RetinaNet**) with below files:
 
-The complete pipeline for these sample apps is:
-> filesrc->h264parse->nvv4l2decoder->streammux->nvinfer(frcnn/ssd/mrcnn)->nvosd->nveglglesink
+- **deepstream_custom.c**: sample application main file
+- **pgie_$(MODEL)_tlt_config.txt**: DeepStream nvinfer configure file
+- **nvdsinfer_customparser_$(MODEL)_tlt**: include inference postprocessor and label file for the model
+- **models/$(MODEL)**:  TLT model files trained by [NVIDIA Transfer Learning Toolkit(TLT) SDK](https://developer.nvidia.com/transfer-learning-toolkit)
+- **TRT-OSS**: TRT(TensorRT) OSS libs for some platforms/systems (refer to the README to build lib for other platforms/systems)
+
+The pipeline of this sample is:
+>
+>
+>   H264/JPEG-->decoder-->tee -->| -- (batch size) ------>|-->streammux--> nvinfer-->nvosd --> |---> encode --->filesink (save the output in local dir) / 
+>                                                                                              |---> display
+>
 
 ## Prerequisites
 
-* [Deepstream SDK 4.0+](https://developer.nvidia.com/deepstream-sdk)
- You can run deepstream-test1 sample to check Deepstream installation is successful or not.
+* [Deepstream SDK 5.0](https://developer.nvidia.com/deepstream-sdk)   
 
-* [TensorRT 5.1 GA](https://developer.nvidia.com/tensorrt)
+   Make sure deepstream-test1 sample can run successful to verify your installation
 
-* [TensorRT OSS (release/5.1 branch)](https://github.com/NVIDIA/TensorRT/tree/release/5.1)
-This repository depends on the TensorRT OSS plugins. Specifically, the FasterRCNN sample depends on the `cropAndResizePlugin` and `proposalPlugin`; the MaskRCNN sample depends on the `ProposalLayer_TRT`, `PyramidROIAlign_TRT`, `DetectionLayer_TRT` and `SpecialSlice_TRT`; the SSD sample depends on the `batchTilePlugin`. To use these plugins for the samples here, complile a new `libnvinfer_plugin.so*` and replace your system `libnvinfer_plugin.so*`.
+* [TensorRT OSS (release/7.x branch)](https://github.com/NVIDIA/TensorRT/tree/release/7.0)
+
+  This is **ONLY** needed when running *SSD*, *DSSD*, *RetinaNet* and *YOLOV3* models because BatchTilePlugin required by these models is not supported by TensorRT7.x native package.
+
+## Download
+
+### 1. Install [git-lfs](https://github.com/git-lfs/git-lfs/wiki/Installation) (git >= 1.8.2)
+
+*Need git-lfs to support downloading the >5MB model files.*  
+
+```
+curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
+sudo apt-get install git-lfs
+git lfs install
+```
+
+### 2. Download Source Code with SSH or HTTPS
+
+```
+// SSH
+git clone git@github.com:NVIDIA-AI-IOT/deepstream_tlt_apps.git
+// or HTTPS
+git clone https://github.com/NVIDIA-AI-IOT/deepstream_tlt_apps.git
+```
 
 ## Build
- * $ export DS_SRC_PATH="Your deepstream sdk source path".
- * $ cd nvdsinfer_customparser_frcnn_uff or nvdsinfer_customparser_ssd_uff or nvdsinfer_customparser_mrcnn_uff
- * $ make
- * $ cd ..
- * $ make
 
-## Configure
-We need to do some configurations before we can run these sample apps. The configuration includes two parts. One is the label file for the DNN model and the other is the DeepStream configuration file.
+### 1. Build TRT OSS Plugin
 
-### Label file
-The label provides the list of class names for a specific DNN model trained in one of the methods mentioned above. The label varies for different apps. Details given below.
-
-* **FasterRCNN**
-For FasterRCNN, the label file is `nvdsinfer_customparser_frcnn_uff/frcnn_labels.txt`. When training the FasterRCNN model you should have an experiment specification file. The labels can be found there. For example, suppose the `class_mapping` field in experiment specification file looks like
+Refer to below README to update libnvinfer_plugin.so* if want to run *SSD*, *DSSD*, *RetinaNet* or *YOLOV3*.
 
 ```
-class_mapping {
-key: 'Car'
-value: 0
-}
-class_mapping {
-key: 'Van'
-value: 0
-}
-class_mapping {
-key: "Pedestrian"
-value: 1
-}
-class_mapping {
-key: "Person_sitting"
-value: 1
-}
-class_mapping {
-key: 'Cyclist'
-value: 2
-}
-class_mapping {
-key: "background"
-value: 3
-}
-class_mapping {
-key: "DontCare"
-value: -1
-}
-class_mapping {
-key: "Truck"
-value: -1
-}
-class_mapping {
-key: "Misc"
-value: -1
-}
-class_mapping {
-key: "Tram"
-value: -1
-}
-```
-We choose an arbitrary key for each number if there are more than one key that maps to the same number. And we only include the keys that map to non-negative numbers since classes mapped to negative numbers are don't-care classes. Thus, the corresponding label file would be(has to be in the same order of the numbers in the class mapping):
-```
-Car
-Pedestrian
-Cyclist
-background
+TRT-OSS/Jetson/README.md              // for Jetson platform
+TRT-OSS/x86/README.md                 // for x86 platform
 ```
 
-* **SSD**
-The order in which the classes are listed here must match the order in which the model predicts the output. This order is derived from the order in which the objects are instantiated in the `dataset_config` field of the SSD experiment config file as mentioned in Transfer Learning Toolkit user guide. For example, if the `dataset_config` is like this:
+### 2. Build Sample Application
 
 ```
-dataset_config {
-  data_sources {
-    tfrecords_path: "/home/projects2_metropolis/datasets/maglev_tfrecords/ivalarge_tfrecord_qres/*"
-    image_directory_path: "/home/IVAData2/datasets/ivalarge_cyclops-b"
-  }
-  data_sources {
-    tfrecords_path: "/home/projects2_metropolis/datasets/maglev_tfrecords/its_datasets_qres/aicities_highway/*"
-    image_directory_path: "/home/projects2_metropolis/exports/IVA-0010-01_181016"
-  }
-  validation_fold: 0
-  image_extension: "jpg"
-  target_class_mapping {
-    key: "AutoMobile"
-    value: "car"
-  }
-  target_class_mapping {
-    key: "Automobile"
-    value: "car"
-  }
-  target_class_mapping {
-    key: "Bicycle"
-    value: "bicycle"
-  }
-  target_class_mapping {
-    key: "Heavy Truck"
-    value: "car"
-  }
-  target_class_mapping {
-    key: "Motorcycle"
-    value: "bicycle"
-  }
-  target_class_mapping {
-    key: "Person"
-    value: "person"
-  }
-
-  ...
-
-  }
-  target_class_mapping {
-    key: "traffic_light"
-    value: "road_sign"
-  }
-  target_class_mapping {
-    key: "twowheeler"
-    value: "bicycle"
-  }
-  target_class_mapping {
-    key: "vehicle"
-    value: "car"
-  }
-}
+export DS_SRC_PATH="Your deepstream sdk source path"      // e.g. /opt/nvidia/deepstream/deepstream
+export CUDA_VER=xy.z                                      // xy.z is CUDA version, e.g. 10.2
+make
 ```
-
-The corresponding label file will be
+## Run
 
 ```
-bicycle
-car
-person
-road_sign
+./deepstream-custom -c pgie_config_file -i <H264 or JPEG filename> [-b BATCH] [-d]
+    -h: print help info
+    -c: pgie config file, e.g. pgie_frcnn_tlt_config.txt
+    -i: H264 or JPEG input file
+    -b: batch size, this will override the value of "baitch-size" in pgie config file
+    -d: enable display, otherwise dump to output H264 or JPEG file
 ```
 
+## Information for Customization
 
-* **MaskRCNN**
-TBD
+If you want to do some customization, such as training your own TLT model, running the model in other DeepStream pipeline, you should read below sections.  
+### TLT Models
+
+Trained by [NVIDIA Transfer Learning Toolkit(TLT) SDK](https://developer.nvidia.com/transfer-learning-toolkit)
+
+After training finishes, run `tlt-export` to generate an `.etlt` model. This .etlt model can be deployed into DeepStream for fast inference as this sample shows.  
+This DeepStream sample app also supports the TensorRT engine(plan) file generated by running the `tlt-converter` tool on the `.etlt` model.  
+The TensorRT engine file is hardware dependent, while the `.etlt` model is not. You may specify either a TensorRT engine file or a `.etlt` model in the DeepStream configuration file.
+
+### Label Files
+
+The label file includes the list of class names for a model, which content varies for different models.  
+User can find the detailed label information for the MODEL in the README.md and the label file under *nvdsinfer_customparser_$(MODEL)_tlt/*, e.g. ssd label informantion under *nvdsinfer_customparser_ssd_tlt/*
 
 ### DeepStream configuration file
-The DeepStream configuration file provides some parameters for DeepStream at runtime. For example, the model path, the label file path, the precision to run at for TensorRT backend, input and output node names, input dimensions, etc. For different apps, although most of the fields in the configuration file are similar, there are some minor differences. So we describe them one by one below.
+
+The DeepStream configuration file includes some runtime parameters for DeepStream **nvinfer** plugin, such as model path, label file path, TensorRT inference precision, input and output node names, input dimensions and so on.  
+In this sample, each model has its own DeepStream configuration file, e.g. pgie_dssd_tlt_config.txt for DSSD model.
 Please refer to [DeepStream Development Guide](https://docs.nvidia.com/metropolis/deepstream/dev-guide/index.html#page/DeepStream_Development_Guide%2Fdeepstream_app_config.3.2.html) for detailed explanations of those parameters.
 
-Once you finish training a model with Transfer Learning Toolkit, you can run `tlt-export` command to generate an `.etlt` model. This model can be deployed on DeepStream for fast inference. The DeepStream sample app can also accept the TensorRT engine(plan) file generated by running the `tlt-converter` tool on the `.etlt` model. The TensorRT engine file is hardware dependent, while the `.etlt` model is not. You may specify either a TensorRT engine file or a `.etlt` model in the config file, as below.
+### Model Outputs
 
-* **FasterRCNN**
-  The FasterRCNN configuration file is `pgie_frcnn_uff_config.txt`. You may need some customization when you train your own model with TLT. A sample FasterRCNN configuration file looks like below. Each field is self-explanatory.
+#### 1. Yolov3
 
-  A sample `.etlt` model is available at `models/frcnn/faster_rcnn.etlt`. The pb model under `models/frcnn` should not be used for this sample.
+The model has the following four outputs:
 
-  ```
-  [property]
-  gpu-id=0
-  net-scale-factor=1.0
-  offsets=103.939;116.779;123.68
-  model-color-format=1
-  labelfile-path=./nvdsinfer_customparser_frcnn_uff/frcnn_labels.txt
-  # Provide the .etlt model exported by TLT or a TensorRT engine created by tlt-converter
-  # If use .etlt model, please also specify the key('nvidia_tlt')
-  # model-engine-file=./faster_rcnn.uff_b1_fp32.engine
-  tlt-encoded-model=./models/frcnn/faster_rcnn.etlt
-  tlt-model-key=nvidia_tlt
-  uff-input-dims=3;272;480;0
-  uff-input-blob-name=input_1
-  batch-size=1
-  ## 0=FP32, 1=INT8, 2=FP16 mode
-  network-mode=0
-  num-detected-classes=5
-  interval=0
-  gie-unique-id=1
-  is-classifier=0
-  #network-type=0
-  output-blob-names=dense_regress/BiasAdd;dense_class/Softmax;proposal
-  parse-bbox-func-name=NvDsInferParseCustomFrcnnUff
-  custom-lib-path=./nvdsinfer_customparser_frcnn_uff/libnvds_infercustomparser_frcnn_uff.so
+- **num_detections**: A [batch_size] tensor containing the INT32 scalar indicating the number of valid detections per batch item. It can be less than keepTopK. Only the top num_detections[i] entries in nmsed_boxes[i], nmsed_scores[i] and nmsed_classes[i] are valid
+- **nmsed_boxes**: A [batch_size, keepTopK, 4] float32 tensor containing the coordinates of non-max suppressed boxes
+- **nmsed_scores**: A [batch_size, keepTopK] float32 tensor containing the scores for the boxes
+- **nmsed_classes**: A [batch_size, keepTopK] float32 tensor containing the classes for the boxes
 
-  [class-attrs-all]
-  roi-top-offset=0
-  roi-bottom-offset=0
-  detected-min-w=0
-  detected-min-h=0
-  detected-max-w=0
-  detected-max-h=0
-  ```
+#### 2. Detectnet_v2
 
-* **SSD**
-  The SSD configuration file is `pgie_ssd_uff_config.txt`.
+The model has the following two outputs:
 
-* **MaskRCNN**
-The MaskRCNN configuration file is `pgie_mrcnn_uff_config.txt`.
+- **output_cov/Sigmoid**: A [batchSize, Class_Num, gridcell_h, gridcell_w] tensor contains the number of gridcells that are covered by an object
+- **output_bbox/BiasAdd**: a [batchSize, Class_Num, 4] contains the normalized image coordinates of the object (x1, y1) top left and (x2, y2) bottom right with respect to the grid cell
 
-## Run the sample app
-Make sure "deepstream-test1" sample can run before running this app.
-Once we have built the app and finished the configuration, we can run the app, using the command mentioned below.
-```bash
-./deepstream-custom <config_file> <H264_file>
+#### 3~5. RetinaNet / DSSD / SSD
+
+These three models have the same output layer named NMS which implementation can refer to TRT OSS [nmsPlugin](https://github.com/NVIDIA/TensorRT/tree/master/plugin/nmsPlugin):
+
+* an output of shape [batchSize, 1, keepTopK, 7] which contains nmsed box class IDs(1 value), nmsed box scores(1 value) and nmsed box locations(4 value)
+* another output of shape [batchSize, 1, 1, 1] which contains the output nmsed box count.
+
+#### 6. FasterRCNN
+
+The model has the following three outputs:
+
+- **dense_regress_td/BiasAdd**: A [batchSize, R, C*4] tensor containing the bounding box regression
+- **dense_class_td/Softmax**:  A [batchSize, R, C+1] tensor containing the class id and scores
+- **proposal**:  A [batchSize, R, 4] tensor containing the rois
+  R = post NMS top N (usually 300)
+  C = class numbers (+1 means background)
+
+### TRT Plugins Requirements
+
+> **FasterRCNN**: cropAndResizePlugin,  proposalPlugin    
+> **SSD/DSSD/RetinaNet**:  batchTilePlugin, nmsPlugin   
+> **YOLOV3**:  batchTilePlugin, resizeNearestPlugin, batchedNMSPlugin
+
+## FAQ
+
+### Measure The Inference Perf
+
+```CQL
+# 1.  Build TensorRT Engine through this smample, for example, build YoloV3 with batch_size=2
+./deepstream-custom -c pgie_yolov3_tlt_config.txt -i /opt/nvidia/deepstream/deepstream/samples/streams/sample_720p.h264 -b 2
+## after this is done, it will generate the TRT engine file under models/$(MODEL), e.g. models/yolov3/ for above command.
+# 2. Measure the Inference Perf with trtexec, following above example
+cd models/yolov3/
+trtexec --batch=2 --useSpinWait --loadEngine=yolo_resnet18.etlt_b2_gpu0_fp16.engine
+## then you can find the per *BATCH* inference time in the trtexec output log
 ```
 
-## Known issues and Notes
-* To run FasterRCNN/SSD in fp16 mode, please replace "/opt/nvidia/deepstream/deepstream-4.0/lib/libnvds_inferutils.so" in your platform by `fp16_fix/libnvds_inferutils.so.aarch64` or `fp16_fix/libnvds_inferutils.so.x86`
+## Known issues
 
-* For SSD, don't forget to set your own keep_count, keep_top_k in `nvdsinfer_custombboxparser_ssd_uff.cpp` for the NMS layer, if you change them in the training stage in TLT.
-
-* For FasterRCNN, don't forget to set your own parameters in `nvdsinfer_customparser_frcnn_uff/nvdsinfer_customparser_frcnn_uff.cpp` if you change them in the training stage in TLT.
-
-* For MaskRCNN, app can show bbox but cannot show mask in present. User can dump mask in the buffer `out_mask` in `nvdsinfer_customparser_mrcnn_uff/nvdsinfer_custombboxparser_mrcnn_uff.cpp`.
-
-* In function 'attach_metadata_detector()' in deepstream source code:
- 1. frame scale_ratio_x/scale_ratio_y is (network width/height) / (streammux width/height)
- 2. Some objects will be filtered because its width/height/top/left is beyond the source size (streammux is as source)
